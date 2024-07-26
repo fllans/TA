@@ -1,4 +1,6 @@
 import os
+import psutil
+import re
 import subprocess
 import shutil
 import zipfile
@@ -9,6 +11,7 @@ from datetime import datetime
 
 # Директории
 Branch = "main"
+# Branch = "v.5.1.3n7"
 pathDistr = f"D:\\Distr\\{Branch}"
 pathTmp = f"D:\\Distr\\{Branch}\\tmp"
 pathSetup = f"D:\\_Scada_{Branch}"
@@ -19,19 +22,25 @@ pathServerDistr = {'main': '\\\\devstorage.ivtek\\dev\\SCADAV\\main',
                    'develop': '\\\\devstorage.ivtek\\dev\\SCADAV\\develop',                        
                    '210': '\\\\devstorage.ivtek\\dev\\SCADA2\\branches\\Scada_2.10',                        
                    'trunk': '\\\\devstorage.ivtek\\dev\\SCADA2\\trunk',
+                   'v.5.1.3n7': '\\\\devstorage.ivtek\\dev\\SCADAV\\v.5.1.3n7'
                   }
 
 componentDistrWin = {'main': 'ScadaSetupWin.zip',
                      'develop': 'ScadaSetupWin.zip',
                      '210': 'ScadaSetup.exe',
-                     'trunk': 'ScadaSetup.exe'
+                     'trunk': 'ScadaSetup.exe',
+                     'v.5.1.3n7': 'ScadaSetupWin.zip'
                     }
 
 componentDistrLin = {'main': 'ScadaSetup.tar.gz',
-                     'develop': 'ScadaSetup.tar.gz'
+                     'develop': 'ScadaSetup.tar.gz',
+                     'v.5.1.3n7': 'ScadaSetupWin.zip'
                     }
 
 listComponents = ['Redist/', 'about.txt', 'ScadaVSetup.exe']
+# listComponents = ['Redist/', 'ScadaVSetup.exe']
+
+listSettingsComponents = ['ini/', 'Demo_orig/', 'config.ini']
 
 listDb = {'AutoTestDb': '\\\\projectserver.ivtek\\QA_Proj\\QA\\AutoTestDb\\SCADABD.GDB',
           'AtV': '\\\\projectserver.ivtek\\QA_Proj\\QA\\AtV\\Tenix\\SCADABD.GDB'
@@ -49,7 +58,7 @@ def LocalDistr(fileDistr):
         return os.path.exists(fileDistr)
     
     except Exception:
-        print("LocalDistr: ошибка проверки наличия локального дистрибутива")
+        print("LocalDistr: Ошибка проверки наличия локального дистрибутива")
 
 # Функция подсчёта количества папок
 def CountFolders(path):
@@ -63,7 +72,7 @@ def CountFolders(path):
         return count
     
     except Exception:
-        print("CountFolders: ошибка подсчёта количества папок")
+        print("CountFolders: Ошибка подсчёта количества папок")
 
 # Функция удаления самой старой папки
 def DeleteOldestFolder(path):
@@ -83,12 +92,12 @@ def DeleteOldestFolder(path):
 
         if oldestFolder:
             shutil.rmtree(oldestFolder)
-            print(f"DeleteOldestFolder: самая старая папка '{oldestFolder}' удалена")
+            print(f"DeleteOldestFolder: Самая старая папка '{oldestFolder}' удалена")
         else:
-            print(f"DeleteOldestFolder: в папке '{path}' нет папок")
+            print(f"DeleteOldestFolder: В папке '{path}' нет папок")
 
     except Exception:
-        print("DeleteOldestFolder: ошибка удаления папки с устаревшим backup'ом")
+        print("DeleteOldestFolder: Ошибка удаления папки с устаревшим backup'ом")
 
 # Функция создания папки для Backup'а
 def CreateBackupFolder(path):
@@ -97,16 +106,16 @@ def CreateBackupFolder(path):
         folderName = now.strftime("Backup_%Y-%m-%d_%H-%M-%S")
         folderPath = os.path.join(path, folderName)
         os.makedirs(folderPath)
-        print(f"CreateBackupFolder: папка '{folderName}' успешно создана в '{path}'")
+        print(f"CreateBackupFolder: Папка '{folderName}' успешно создана в '{path}'")
         return folderPath
     
     except Exception:
-        print("CreateBackupFolder: ошибка создания папки для backup'а")
+        print("CreateBackupFolder: Ошибка создания папки для backup'а")
 
 # Функция копирования файлов для backup'а
 def СopyBackup(pathDistr, pathTmp, pathSetup):
     try:
-        while CountFolders(pathTmp) >= 10:
+        while CountFolders(pathTmp) >= 5:
             DeleteOldestFolder(pathTmp)
 
         pathBackup = CreateBackupFolder(pathTmp)
@@ -116,9 +125,14 @@ def СopyBackup(pathDistr, pathTmp, pathSetup):
 
             if os.path.isfile(pathSource):
                 shutil.copy2(pathSource, pathBackup)
-                print(f"СopyBackup: файл '{item}' скопирован")
+                print(f"СopyBackup: Файл '{item}' скопирован")
 
         shutil.copytree(f"{pathSetup}\\DB", f"{pathBackup}\\DB")
+        
+        os.makedirs(f"{pathBackup}\\Components", exist_ok = True)
+        shutil.copytree(f"{pathSetup}\\Scada.Client\\ini", f"{pathBackup}\\Components\\ini")
+        if os.path.exists(f"{pathSetup}\\config.ini"):
+            shutil.copy2(f"{pathSetup}\\config.ini", f"{pathBackup}\\Components")
         
         keysListDB = list(listDb.keys())
         for item in keysListDB:
@@ -127,10 +141,10 @@ def СopyBackup(pathDistr, pathTmp, pathSetup):
             os.makedirs(pathDb, exist_ok=True)
             shutil.copy2(listDb[item], f"{pathDb}\\SCADABD.GDB")
 
-        print("СopyBackup: копирования файлов для backup'а завершено")
+        print("СopyBackup: Копирования файлов для backup'а завершено")
         
     except Exception:
-        print("СopyBackup: ошибка копирования файлов для backup'а")
+        print("СopyBackup: Ошибка копирования файлов для backup'а")
 
 # Функция проверки наличия и актуальнос актуального дистрибутива
 def CheckDistr(path, component, local = True, filter = 100000):
@@ -141,11 +155,11 @@ def CheckDistr(path, component, local = True, filter = 100000):
             pathComponent = f"{path}\\Distr\\{component}"
 
         if not os.path.exists(pathComponent) and local:
-            print(f"CheckDistr: компонент '{pathComponent}' не найден на локальном компьютере")
+            print(f"CheckDistr: Компонент '{pathComponent}' не найден на локальном компьютере")
             return True
 
         if not os.path.exists(pathComponent) and not local:
-            print(f"CheckDistr: компонент '{pathComponent}' не найден на сервере")
+            print(f"CheckDistr: Компонент '{pathComponent}' не найден на сервере")
             return False
         
         dataDistr = os.path.getmtime(pathComponent)
@@ -153,7 +167,7 @@ def CheckDistr(path, component, local = True, filter = 100000):
         return dataDistr - now > filter
 
     except Exception:
-        print("CheckDistr: ошибка проверки актуальности дистрибутива")
+        print("CheckDistr: Ошибка проверки актуальности дистрибутива")
 
 # Функция удаления файлов дистрибутива
 def DelDistr(path, components):
@@ -163,10 +177,10 @@ def DelDistr(path, components):
 
             if os.path.exists(pathComponent):
                 os.remove(pathComponent)
-                print(f"DelDistr: компонент '{pathComponent}' удалён")
+                print(f"DelDistr: Компонент '{pathComponent}' удалён")
 
     except Exception:
-        print("DelDistr: ошибка удаления дистрибутива")
+        print("DelDistr: Ошибка удаления дистрибутива")
 
 # Функция копирования файлов дистрибутива
 def CopyDistr(pathLocal, pathServer, componentWin, componentLin = ""):
@@ -177,7 +191,7 @@ def CopyDistr(pathLocal, pathServer, componentWin, componentLin = ""):
             shutil.copy2(f"{pathServer}\\Distr\\{componentLin}", pathLocal)
     
     except Exception:
-        print("CopyDistr: ошибка копирования дистрибутива с сервера")
+        print("CopyDistr: Ошибка копирования дистрибутива с сервера")
 
 # Функция извлечения файлов дистрибутива из архива
 def ExtractDistr(path, zipName, extractName, redist = False):
@@ -185,15 +199,36 @@ def ExtractDistr(path, zipName, extractName, redist = False):
     
     with zipfile.ZipFile(zipPath, 'r') as zipRef:
         for item in extractName:
-            if os.path.exists(f"{path}\\{item}") or item != 'Redist/':
-                try:
-                    zipRef.getinfo(item)
-                
-                except Exception:
-                    print(f"ExtractDistr: ошибка извлечения '{item}' из '{zipPath}'")
+            for info in zipRef.infolist():
+                if info.filename == item:
+            
+                    if os.path.exists(f"{path}\\{item}") or item != 'Redist/':
+                        try:
+                            zipRef.getinfo(item)
+                        
+                        except Exception:
+                            print(f"ExtractDistr: Ошибка извлечения '{item}' из '{zipPath}'")
 
-            zipRef.extractall(path, members = [item])
-            print(f"ExtractDistr: файл или папка '{item}' успешно извлечён в '{path}'.")
+                    zipRef.extractall(path, members = [item])
+                    print(f"ExtractDistr: '{item}' успешно извлечён в '{path}'.")
+                # else: print(f"Файл '{item}' не найден в архиве")
+    
+    
+# проверка наличия файла    
+# def check_file_in_archive(archive_path, file_name):
+#   try:
+#     with zipfile.ZipFile(item, 'r') as archive:
+#       for info in archive.infolist():
+#         if info.filename == item:
+#           return True
+#   except FileNotFoundError:
+#     print(f"Архив '{archive_path}' не найден.")
+#     return False
+#   except zipfile.BadZipFile:
+#     print(f"Файл '{archive_path}' не является архивом.")
+#     return False
+#   return False
+    
     
     if not redist:
         if os.path.exists(f"{path}\\!Redist"):
@@ -211,7 +246,7 @@ def DelScada(path):
         return True
     
     except Exception:
-        print(f"DelScada: ошибка удаления установленной SCADA '{path}'. Ошибка: {Exception}")
+        print(f"DelScada: Ошибка удаления установленной SCADA '{path}'. Ошибка: {Exception}")
 
 # Функция запуска установки SCADA
 def RunSetup(path, type, keys, extendedKeys = [""]):
@@ -220,14 +255,14 @@ def RunSetup(path, type, keys, extendedKeys = [""]):
     elif os.path.exists(f"{path}\\ScadaVSetup.exe"):
         fileSetup = f"{path}\\ScadaVSetup.exe"
     else:
-        print("RunSetup: файл установки не найден")
+        print("RunSetup: Файл установки не найден")
         return False
     
     keys = ["/S", f"{type}", f"/D={pathSetup}"]
     command = [fileSetup] + keys + extendedKeys
 
     try:
-        print("RunSetup: процесс установки запущен")
+        print("RunSetup: Процесс установки запущен")
         process = subprocess.Popen(
             command,
             creationflags = win32con.CREATE_NEW_CONSOLE | win32con.CREATE_NO_WINDOW | win32con.CREATE_UNICODE_ENVIRONMENT, 
@@ -237,9 +272,9 @@ def RunSetup(path, type, keys, extendedKeys = [""]):
         process.wait()
 
         if process.returncode == 0:
-            print(f"RunSetup: приложение успешно установлено")
+            print(f"RunSetup: Приложение успешно установлено")
         else:
-            print(f"RunSetup: ошибка при установке приложения. Код ошибки: {process.returncode}")
+            print(f"RunSetup: Ошибка при установке приложения. Код ошибки: {process.returncode}")
     
     except Exception:
         print(f"RunSetup: Ошибка при установке приложения: {Exception}")
@@ -249,6 +284,33 @@ def startAdmin():
     startupinfo.dwFlags = win32con.STARTF_USESHOWWINDOW
     startupinfo.wShowWindow = win32con.SW_HIDE
     return startupinfo
+
+def copySettings(path, components, pathSetup):
+    pathComponents = f"{path}\\Components"
+    if os.path.exists(pathComponents):
+        for item in components:
+            pathItem = f"{pathComponents}\\{item}"
+
+            if item == "ini/" and os.path.exists(pathItem):
+                shutil.rmtree(f"{pathSetup}\\Scada.Client\\ini")
+                shutil.copytree(pathItem, f"{pathSetup}\\Scada.Client\\ini")
+                print(f"copySettings: Папка '{item}' скопирована в '{pathSetup}\\Scada.Client'")
+
+            if item == "Demo_orig/" and os.path.exists(pathItem):
+                shutil.copytree(pathItem, f"{pathSetup}\\DB\\Demo_orig\\")
+                print(f"copySettings: Папка '{item}' скопирована в '{pathSetup}\\DB'")
+           
+            if item == "config.ini" and os.path.exists(pathItem):
+                shutil.copy2(pathItem, pathSetup)
+                print(f"copySettings: Файл '{item}' скопирован в '{pathSetup}'")
+    else: print("copySettings: Отсутствуют файлы окружения для замены")
+
+def copyDataBase():
+    
+    
+    
+    return True
+
 
 def SetupScada():
     
@@ -275,8 +337,6 @@ def SetupScada():
 
 # Тест 
 СopyBackup(pathDistr, pathTmp, pathSetup)
-# ActualDistr(pathDistr, pathServerDistr[Branch], componentDistrWin[Branch], 100000)
-
 CheckDistr(pathServerDistr[Branch], componentDistrWin[Branch], False)
 CheckDistr(pathDistr, componentDistrWin[Branch])
 DelDistr(pathDistr, listComponents)
@@ -284,6 +344,9 @@ CopyDistr(pathDistr, pathServerDistr[Branch], componentDistrWin[Branch], compone
 ExtractDistr(pathDistr, componentDistrWin[Branch], listComponents)
 DelScada(pathSetup)
 RunSetup(pathDistr, typeSetup, pathSetup)
+copySettings(pathDistr, listSettingsComponents, pathSetup)
+
+
 
 def MakeBackup(pathDistr):
     # while CountFolders(f"{pathDistr}\\tmp") > 10:
